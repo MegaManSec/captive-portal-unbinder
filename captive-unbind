@@ -7,20 +7,24 @@ fin(){
   code="$?"
   [ "$code" -eq 2 ] && exit 1 # exit code 2 means we have no ipfw rules to delete
 
-  [ "$code" -eq 1 ] && service ipfw restart && exit 1 # means something went wrong with drill/curl
+  [ "$code" -eq 1 ] && echo "Restarting ipfw." && service ipfw restart >/dev/null && exit 1 # means something went wrong with drill/curl
 
   printf "Finished? (no: restart ipfw) (yes/no): "
   read -r response
-  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "n" ] && service ipfw restart && exit 1
+  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "n" ] && echo "Restarting ipfw." && service ipfw restart >/dev/null && exit 1
 
   exit 0
 }
 
 trap fin EXIT
 
-[ -z "$iface" ] && echo "Usage: script $iface" && exit 2
 
+[ "$(id -u)" != "0" ] && echo "This script must be run as root" >&2 && exit 2
+
+[ -z "$iface" ] && echo "Usage: captive-unbound IFNAME" && exit 2
 ! [ -r "/var/db/dhclient.leases.$iface" ] && echo "No dhclient lease: $iface" && exit 2
+
+
 
 FWD_ADDRS="$(awk 'BEGIN {
   inside_block = 0;
@@ -124,7 +128,7 @@ DNS_ADDRS="$(echo "$DNS_ADDRS" | sort | uniq)"
 
 printf "\n"
 
-[ -z "$DNS_ADDRS" ] && echo "Could not discover any hosts for forward-zone." && exit 1
+[ -z "$DNS_ADDRS" ] && echo "Could not discover any captive portals for forward-zone. Maybe there's a meta-redirect?" && exit 1 # TODO: Handle this case better. We can try to curl and see what happens.
 printf -- "-----------\n"
 UNBOUND_BLOCK="$(echo "$DNS_ADDRS" | awk '
 {
@@ -157,7 +161,7 @@ printf -- "-----------\n"
 
 printf "Do you want to add this to unbound.conf? (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop && service unbound start && printf -- "-----------\n\n"
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop ; service unbound start ; printf -- "-----------\n\n"
 
 printf "Do you want to curl each website to check for more domains? (Screen will redraw on exit) (yes/no): "
 read -r response
@@ -189,6 +193,6 @@ printf -- "-----------\n"
 
 printf "Do you want to add this to unbound.conf? (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop && service unbound start && printf -- "-----------\n\n" 
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop ; service unbound start ; printf -- "-----------\n\n"
 
 exit 0
