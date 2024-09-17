@@ -5,19 +5,24 @@ UNBOUND_CONFIG="/usr/local/etc/unbound/unbound.conf"
 
 fin(){
   code="$?"
+
   [ "$code" -eq 2 ] && exit 1 # exit code 2 means we have no ipfw rules to delete
 
   [ "$code" -eq 1 ] && echo "Restarting ipfw." && service ipfw restart >/dev/null && exit 1 # means something went wrong with drill/curl
 
   printf "Finished? (no: restart ipfw) (yes/no): "
   read -r response
-  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "n" ] && echo "Restarting ipfw." && service ipfw restart >/dev/null && exit 1
+  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || echo "Restarting ipfw." && service ipfw restart >/dev/null && exit 1
 
   exit 0
 }
 
-trap fin EXIT
+fin_c() {
+  printf "\n"
+  exit 1
+}
 
+trap fin EXIT
 
 [ "$(id -u)" != "0" ] && echo "This script must be run as root" >&2 && exit 2
 
@@ -60,7 +65,7 @@ END {
   }
 }' "/var/db/dhclient.leases.$iface")"
 
-	
+
 if [ -z "$FWD_ADDRS" ]; then
     echo "No DNS servers found from DHCP lease."
     printf "Specify proper DNS servers: "
@@ -69,7 +74,7 @@ else
     echo "Found the following DNS servers: "$FWD_ADDRS
     printf "Do these look like valid? (yes/no): "
     read -r response
-    [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] || read -p "Specify proper DNS servers: " FWD_ADDRS
+    [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || read -p "Specify proper DNS servers: " FWD_ADDRS
 fi
 
 [ -z "$response" ] && exit 2
@@ -83,11 +88,14 @@ printf -- "-----------\n"
 
 printf "Does this look reasonable to you? (yes/no/skip): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] && echo "$FWD_ADDRS" | tr ' ' '\n' | while IFS= read -r FWD_ADDR; do
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || exit 2
+
+trap fin_c INT
+
+echo "$FWD_ADDRS" | tr ' ' '\n' | while IFS= read -r FWD_ADDR; do
   ipfw -q add 1 allow udp from any to "$FWD_ADDR" 53
   ipfw -q add 1 allow udp from "$FWD_ADDR" 53 to any
 done
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "n" ] && exit 2
 
 printf "\n"
 
@@ -116,7 +124,7 @@ DNS_ADDRS="$(echo "$FWD_ADDRS" | tr ' ' '\n' | while IFS= read -r FWD_ADDR; do
 
       # $FWD_ADDR is the resolver which is trying to hijack us, redirecting us to $REDIRECT_ADDR
       echo "$FWD_ADDR=$REDIRECT_ADDR"
-      printf ".captive.apple.com hijacked by %s with A record '%s' redirects to http://%s/." "$FWD_ADDR" "$A_RECORD" "$REDIRECT_ADDR" >&2 
+      printf ".captive.apple.com hijacked by %s with A record '%s' redirects to http://%s/." "$FWD_ADDR" "$A_RECORD" "$REDIRECT_ADDR" >&2
     done
     printf "\n" >&2
   done
@@ -128,7 +136,34 @@ DNS_ADDRS="$(echo "$DNS_ADDRS" | sort | uniq)"
 
 printf "\n"
 
-[ -z "$DNS_ADDRS" ] && echo "Could not discover any captive portals for forward-zone. Maybe there's a meta-redirect?" && exit 1 # TODO: Handle this case better. We can try to curl and see what happens.
+if [ -z "$DNS_ADDRS" ]; then
+  echo "Could not discover any captive portals for forward-zone. Maybe there's a meta-redirect?"
+  printf "Do you want to add your own? (yes/no): "
+  read -r response
+  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || exit 1
+
+  printf "Specify the DNS Server and the captive portal in the form of DNS_ADDR=CAPTIVE_PORTAL_DOMAIN: "
+  read -r response
+
+  [ -z "$response" ] && exit 1
+
+  DNS_ADDRS="$response"
+fi
+
+DUPES="$(echo "$DNS_ADDRS" | awk -F"=" '{print $2}' | sort | uniq | while IFS= read -r REDIRECT_ADDR; do
+  if grep -q "$REDIRECT_ADDR" "$UNBOUND_CONFIG"; then
+    echo "$UNBOUND_CONFIG"
+  fi
+done)"
+
+if [ -n "$DUPES" ]; then
+  echo "$DUPES" | sort | uniq | while IFS= read -r DUPE; do
+    echo "Captive portal $DUPE already exists in $UNBOUND_CONFIG"
+  done
+
+  exit 0
+fi
+
 printf -- "-----------\n"
 UNBOUND_BLOCK="$(echo "$DNS_ADDRS" | awk '
 {
@@ -161,11 +196,13 @@ printf -- "-----------\n"
 
 printf "Do you want to add this to unbound.conf? (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop ; service unbound start ; printf -- "-----------\n\n"
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop ; sleep 3 ; service unbound start ; printf -- "-----------\n\n"
+
+trap - INT
 
 printf "Do you want to curl each website to check for more domains? (Screen will redraw on exit) (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] || exit 0
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || exit 0
 
 echo "$DNS_ADDRS" | awk -F"=" '{print $2}' | sort | uniq | while IFS= read -r REDIRECT_ADDR; do
   curl -s -A 'Mozilla' -m 10 -L -k -H 'Host: captive.apple.com' http://"$REDIRECT_ADDR"/ | more --redraw-on-quit
@@ -193,6 +230,6 @@ printf -- "-----------\n"
 
 printf "Do you want to add this to unbound.conf? (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" = "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop ; service unbound start ; printf -- "-----------\n\n"
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop ; sleep 3 ; service unbound start ; printf -- "-----------\n\n"
 
 exit 0
