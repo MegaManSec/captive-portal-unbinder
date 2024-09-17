@@ -138,7 +138,12 @@ printf "\n"
 
 if [ -z "$DNS_ADDRS" ]; then
   echo "Could not discover any captive portals for forward-zone. Maybe there's a meta-redirect?"
-  printf "Do you want to add your own? (yes/no): "
+
+  printf "Do you want to curl to http://1.1.1.1/ (Screen will redraw on exit) (yes/no): "
+  read -r response
+  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && curl -s -A 'Mozilla' -m 10 -L -k http://1.1.1.1/ | more --redraw-on-quit
+
+  printf "Do you want to add your own captive portal address? (FWD_ADDRS="$FWD_ADDRS") (yes/no): "
   read -r response
   [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || exit 1
 
@@ -148,11 +153,25 @@ if [ -z "$DNS_ADDRS" ]; then
   [ -z "$response" ] && exit 1
 
   DNS_ADDRS="$response"
+
+  while true; do
+    printf "Add another? (yes/no): "
+    read -r response
+
+    [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || break
+
+    printf "Specify the DNS Server and the captive portal in the form of DNS_ADDR=CAPTIVE_PORTAL_DOMAIN: "
+    read -r response
+
+    [ -z "$response" ] && break
+
+    DNS_ADDRS="$(printf "%s\n%s" "$DNS_ADDRS" "$response")"
+  done
 fi
 
 DUPES="$(echo "$DNS_ADDRS" | awk -F"=" '{print $2}' | sort | uniq | while IFS= read -r REDIRECT_ADDR; do
   if grep -q "$REDIRECT_ADDR" "$UNBOUND_CONFIG"; then
-    echo "$UNBOUND_CONFIG"
+    echo "$REDIRECT_ADDR"
   fi
 done)"
 
@@ -196,7 +215,7 @@ printf -- "-----------\n"
 
 printf "Do you want to add this to unbound.conf? (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop ; sleep 3 ; service unbound start ; printf -- "-----------\n\n"
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && { service unbound stop ; sleep 3 ; service unbound start ; printf -- "-----------\n\n"; }
 
 trap - INT
 
@@ -230,6 +249,6 @@ printf -- "-----------\n"
 
 printf "Do you want to add this to unbound.conf? (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && service unbound stop ; sleep 3 ; service unbound start ; printf -- "-----------\n\n"
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && { service unbound stop ; sleep 3 ; service unbound start ; printf -- "-----------\n\n"; }
 
 exit 0
