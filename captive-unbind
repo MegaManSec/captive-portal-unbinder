@@ -106,7 +106,7 @@ printf -- "-----------\n"
 
 printf "Does this look reasonable to you? (yes/no/skip): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || exit 2
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "n" ] && exit 2
 
 trap fin_c INT
 
