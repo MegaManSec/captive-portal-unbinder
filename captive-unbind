@@ -12,7 +12,20 @@ fin(){
 
   printf "Finished? (no: restart ipfw) (yes/no): "
   read -r response
-  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || echo "Restarting ipfw." && service ipfw restart >/dev/null && exit 1
+  if [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ]; then
+    if [ -n "$DNS_ADDRS" ]; then
+      echo "Visit the captive portal(s):"
+      printf "  http://captive.apple.com/\n"
+      printf "  http://1.1.1.1/\n"
+      echo "$DNS_ADDRS" | awk -F"=" '{print $2}' | sort | uniq | while IFS= read -r REDIRECT_ADDR; do
+        printf "  http://%s/\n" "$REDIRECT_ADDR"
+      done
+    fi
+  else
+    echo "Restarting ipfw."
+    service ipfw restart >/dev/null
+    exit 1
+  fi
 
   exit 0
 }
@@ -20,6 +33,11 @@ fin(){
 fin_c() {
   printf "\n"
   exit 1
+}
+
+fin_cc() {
+  printf "\n"
+  exit 0
 }
 
 trap fin EXIT
@@ -207,7 +225,7 @@ END {
         print "\tforward-addr: " addr_list[i]
       }
     }
-    print "\tforward-tls-upstream: no\n\n"
+    print "\tforward-tls-upstream: no\n"
   }
 }')"
 echo "$UNBOUND_BLOCK"
@@ -215,26 +233,30 @@ printf -- "-----------\n"
 
 printf "Do you want to add this to unbound.conf? (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && { service unbound stop ; sleep 3 ; service unbound start ; printf -- "-----------\n\n"; }
+[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && { service unbound stop ; sleep 1 ; service unbound start ; printf -- "-----------\n\n"; }
 
-trap - INT
+trap fin_cc INT
 
 printf "Do you want to curl each website to check for more domains? (Screen will redraw on exit) (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || exit 0
 
-echo "$DNS_ADDRS" | awk -F"=" '{print $2}' | sort | uniq | while IFS= read -r REDIRECT_ADDR; do
-  curl -s -A 'Mozilla' -m 10 -L -k -H 'Host: captive.apple.com' http://"$REDIRECT_ADDR"/ | more --redraw-on-quit
-done
+if [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ]; then
+  echo "$DNS_ADDRS" | awk -F"=" '{print $2}' | sort | uniq | while IFS= read -r REDIRECT_ADDR; do
+    curl -s -A 'Mozilla' -m 10 -L -k -H 'Host: captive.apple.com' http://"$REDIRECT_ADDR"/ | more --redraw-on-quit
+  done
+fi
 
 printf "\n"
 
-printf "Specify any domains you would like to add: "
+printf "Specify any remaining domains you would like to add: "
 read -r response
 
 [ -z "$response" ] && exit 0
 
-UNBOUND_BLOCK="$(for REDIRECT_ADDR in $response; do
+ADDED_DOMAINS="$response"
+
+
+UNBOUND_BLOCK="$(for REDIRECT_ADDR in $ADDED_DOMAINS; do
   printf "forward-zone:\n"
   printf "\tname: \"%s\"\n" "$REDIRECT_ADDR"
   echo "$DNS_ADDRS" | awk -F"=" '{print $1}' | sort | uniq | while IFS= read -r DNS_ADDR; do
@@ -249,6 +271,18 @@ printf -- "-----------\n"
 
 printf "Do you want to add this to unbound.conf? (yes/no): "
 read -r response
-[ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG" && printf "\n" >> "$UNBOUND_CONFIG" && printf -- "\n-----------\n" && { service unbound stop ; sleep 3 ; service unbound start ; printf -- "-----------\n\n"; }
+
+if [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ]; then
+  echo "$UNBOUND_BLOCK" >> "$UNBOUND_CONFIG"
+  printf "\n" >> "$UNBOUND_CONFIG"
+  printf -- "\n-----------\n"
+  service unbound stop
+  sleep 1
+  service unbound start
+  printf -- "-----------\n\n"
+  for REDIRECT_ADDR in $ADDED_DOMAINS; do
+    DNS_ADDRS="$(printf "%s\nplace_holder=%s" "$DNS_ADDRS" "$REDIRECT_ADDR")"
+  done
+fi
 
 exit 0
