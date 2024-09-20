@@ -130,9 +130,9 @@ DNS_ADDRS="$(echo "$FWD_ADDRS" | tr ' ' '\n' | while IFS= read -r FWD_ADDR; do
 
     echo "$A_RECORD" | grep -q '\.$' && continue # ignore CNAME/flatenning
 
-    printf "Checking %s from %s...." >&2 "$A_RECORD" "$FWD_ADDR"
+    printf "Checking %s from %s....\n" >&2 "$A_RECORD" "$FWD_ADDR"
 
-    REDIRECT_ADDRS="$(curl -I -X GET -s -A 'Mozilla' -m 10 -H 'Host: captive.apple.com' -L -k http://"$A_RECORD"/ | awk '/^Location/ {print $NF}')"
+    REDIRECT_ADDRS="$(curl -I -X GET -s -A 'Mozilla' -m 10 -H 'Host: captive.apple.com' -L -k http://"$A_RECORD"/ | awk '{ if (tolower($0) ~ /^location/) print $NF}')"
 
     echo "$REDIRECT_ADDRS" | while IFS= read -r REDIRECT_ADDR; do
       REDIRECT_ADDR="$(echo "$REDIRECT_ADDR" | sed -e 's/^\(.\{0,9\}\)\/\/\(.*\)/\2/'  -e 's|/.*||')"
@@ -142,7 +142,7 @@ DNS_ADDRS="$(echo "$FWD_ADDRS" | tr ' ' '\n' | while IFS= read -r FWD_ADDR; do
 
       # $FWD_ADDR is the resolver which is trying to hijack us, redirecting us to $REDIRECT_ADDR
       echo "$FWD_ADDR=$REDIRECT_ADDR"
-      printf ".captive.apple.com hijacked by %s with A record '%s' redirects to http://%s/." "$FWD_ADDR" "$A_RECORD" "$REDIRECT_ADDR" >&2
+      printf "\tcaptive.apple.com hijacked by %s with A record '%s' redirects to http://%s/.\n" "$FWD_ADDR" "$A_RECORD" "$REDIRECT_ADDR" >&2
     done
     printf "\n" >&2
   done
@@ -159,9 +159,9 @@ if [ -z "$DNS_ADDRS" ]; then
 
   printf "Do you want to curl to http://1.1.1.1/ (Screen will redraw on exit) (yes/no): "
   read -r response
-  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && curl -s -A 'Mozilla' -m 10 -L -k http://1.1.1.1/ | more --redraw-on-quit
+  [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] && curl -i -s -A 'Mozilla' -m 10 -L -k http://1.1.1.1/ | more --redraw-on-quit
 
-  printf "Do you want to add your own captive portal address? (FWD_ADDRS="$FWD_ADDRS") (yes/no): "
+  printf "Do you want to add your own captive portal address? (FWD_ADDRS=%s) (yes/no): " $FWD_ADDRS
   read -r response
   [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || exit 1
 
