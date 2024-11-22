@@ -14,3 +14,5 @@ To be run as root, as `./captive-unbind wifibox0` where `wifibox0` is the wifi s
 A little bit more information about this script can be found [on this post](https://joshua.hu/captive-portal-automatic-unbound-resolve-forward-zone-blocked-dns-traffic).
 
 TODO: If CNAMEs are used, Unbound does not know how to handle the forward-addr. Need to parse `drill` output for this.
+
+TODO: Try to expose ` dhcpcd --dumplease wlan0` from inside the VM
