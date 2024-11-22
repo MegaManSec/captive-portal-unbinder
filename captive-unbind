@@ -95,7 +95,7 @@ else
     [ "$(echo "$response" | cut -c1 | tr '[:upper:]' '[:lower:]')" == "y" ] || read -p "Specify proper DNS servers: " FWD_ADDRS
 fi
 
-[ -z "$response" ] && exit 2
+[ -z "$FWD_ADDRS" ] && exit 2
 
 printf "\n-----------\n"
 echo "$FWD_ADDRS" | tr ' ' '\n' | while IFS= read -r FWD_ADDR; do
