@@ -85,7 +85,7 @@ END {
 
 
 if [ -z "$FWD_ADDRS" ]; then
-    echo "No DNS servers found from DHCP lease."
+    echo "No DNS servers found from DHCP lease." # TODO: There may be no DNS hijacking happening, just HTTP.
     printf "Specify proper DNS servers: "
     read -r FWD_ADDRS
 else
